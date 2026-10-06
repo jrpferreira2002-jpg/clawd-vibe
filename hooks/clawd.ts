@@ -49,8 +49,8 @@ export const SLEEP_FRAMES = [
   { zs: ['         Z  ', '            '], body: ['  ▐▀███▀▌   ', '  ▜█████▛   ', '   ▘▘ ▝▝    '] },
 ]
 
-type Face = '▛███▜' | '▜██▛█' | '█▜██▛' | '▟███▙' | '█████'
-const AHEAD: Face = '▛███▜', LEFT: Face = '▜██▛█', RIGHT: Face = '█▜██▛', UP: Face = '▟███▙', BLINK: Face = '█████'
+type Face = '▛███▜' | '▜██▛█' | '█▜██▛' | '▙███▟' | '█████'
+const AHEAD: Face = '▛███▜', LEFT: Face = '▜██▛█', RIGHT: Face = '█▜██▛', UP: Face = '▙███▟', BLINK: Face = '█████'
 
 function awake(face: Face, dx = 0): [string, string, string] {
   const shift = (row: string) => (' '.repeat(dx) + row).slice(0, 12)
