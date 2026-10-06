@@ -31,7 +31,7 @@ Answer `y` to add the marketplace, pick a scope, and the install screen asks for
 | --- | --- |
 | **Spotify status file** (required) | Full path of the JSON file the watcher writes and the mod reads, e.g. `C:\Users\you\AppData\Local\clawd-vibe\.clawd-spotify.json`. From WSL use `/mnt/c/Users/you/...`. |
 | **Start the watcher at every Windows logon** | Creates a hidden scheduled task so you never start the watcher by hand. Off by default. |
-| **Seconds of silence before Clawd stops vibing** | Default `10`. |
+| **Seconds of silence before Clawd stops vibing** | Default `2`. |
 
 Change them later from `/config`.
 

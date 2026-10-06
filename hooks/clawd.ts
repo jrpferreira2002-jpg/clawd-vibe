@@ -2,7 +2,7 @@ import type { NowPlaying } from '../types'
 
 export const POLL_MS = 1000
 export const FRAME_MS = 350
-export const SLEEP_AFTER_MS = 10_000
+export const SLEEP_AFTER_MS = 2_000
 export const STALE_AFTER_MS = 15_000
 export const TASK_NAME = 'Clawd Spotify Watch'
 export const SLEEP_TICKS = 3

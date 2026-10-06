@@ -198,9 +198,15 @@ export const register: Register = (on, options) => {
 
       return (
         <Box flexDirection="column">
-          {rows.map(text => (
-            <Text color="claude">{text}</Text>
-          ))}
+          <Text color="claude">{rows[0]}</Text>
+          <Box>
+            <Text color="claude">{rows[1]}</Text>
+            <Text dimColor wrap="truncate-end">
+              {' '}
+              awake, waiting for you…
+            </Text>
+          </Box>
+          <Text color="claude">{rows[2]}</Text>
           {band}
         </Box>
       )

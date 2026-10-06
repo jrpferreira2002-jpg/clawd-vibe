@@ -22,7 +22,7 @@
       "type": "number",
       "title": "Seconds of silence before Clawd stops vibing",
       "description": "How long the music must be off before the dance ends.",
-      "default": 10
+      "default": 2
     }
   }
 }
