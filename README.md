@@ -4,9 +4,17 @@ A [Claude Code](https://claude.com/claude-code) mod that puts Clawd above your p
 
 | Mood | When | What you see |
 | --- | --- | --- |
+| **Celebrating** | a turn just finished with an answer (for 5 s) | happy eyes, arms in the air, confetti and `all done!` |
+| **Dizzy** | a turn just ended in an error or a refusal (for 5 s) | `x` eyes, swaying, stars circling his head |
+| **Startled** | you just interrupted a turn (for 5 s) | wide eyes, a `!`, then he settles back down |
 | **Vibing** | Spotify is playing | Clawd in a headset dancing, floating notes, an equaliser and `vibing to Artist - Track` |
-| **Awake** | no music, a conversation is going | Clawd stands there, blinks and glances around |
-| **Sleeping** | no music, no conversation yet (fresh session, or after `/clear`) | closed eyes, dim colours, drifting Zs |
+| **Listening** | you are typing in the prompt (until 2 s after the last key) | Clawd leans in and reads along, with typing dots |
+| **Bored** | a conversation is going but nothing has happened for a while (2 min by default) | taps his foot, glances around, yawns, `…still here` |
+| **Awake** | no music, a conversation is going | Clawd stands there, blinks, glances around, waves and stretches |
+| **Sleeping** | no music, no conversation yet (fresh session, or after `/clear`) | closed eyes, dim colours, drifting Zs and snore bubbles |
+
+The moods are listed from strongest to weakest: a reaction to a finished turn shows even over the music, and typing
+wakes a sleeping Clawd.
 
 Clawd only shows while Claude is idle. The animation needs block characters, so use a terminal that draws them
 properly (in VS Code's terminal keep `terminal.integrated.gpuAcceleration` on).
@@ -32,6 +40,7 @@ Answer `y` to add the marketplace, pick a scope, and the install screen asks for
 | **Spotify status file** (optional — without it Clawd never dances to music) | Full path of the JSON file the watcher writes and the mod reads, e.g. `C:\Users\you\AppData\Local\clawd-vibe\.clawd-spotify.json`. From WSL use `/mnt/c/Users/you/...`. |
 | **Start the watcher at every Windows logon** | Creates a hidden scheduled task so you never start the watcher by hand. Off by default. |
 | **Seconds of silence before Clawd stops vibing** | Default `2`. |
+| **Seconds of quiet before Clawd gets bored** | Default `120`. `0` turns the bored mood off. |
 
 Change them later from `/config`.
 

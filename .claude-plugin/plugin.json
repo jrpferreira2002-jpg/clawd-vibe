@@ -1,7 +1,7 @@
 {
   "name": "clawd-vibe",
   "version": "0.2.0",
-  "description": "Clawd above the prompt: dances with a headset while Spotify plays, idles during a conversation, sleeps otherwise.",
+  "description": "Clawd above the prompt: dances with a headset while Spotify plays, cheers when a turn finishes, reads along as you type, gets bored, idles during a conversation, sleeps otherwise.",
   "author": { "name": "Ferreira" },
   "license": "MIT",
   "types": "./types/index.d.ts",
@@ -23,6 +23,12 @@
       "title": "Seconds of silence before Clawd stops vibing",
       "description": "How long the music must be off before the dance ends.",
       "default": 2
+    },
+    "boredAfterSeconds": {
+      "type": "number",
+      "title": "Seconds of quiet before Clawd gets bored",
+      "description": "How long a conversation can sit idle before Clawd starts tapping his foot and yawning. 0 turns it off.",
+      "default": 120
     }
   }
 }

@@ -1,25 +1,49 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type { NowPlaying } from '../types'
+import type { NowPlaying, Reaction } from '../types'
 import {
+  BORED_AFTER_MS,
+  BORED_FRAMES,
   FRAME_MS,
   FRAMES,
   IDLE_FRAMES,
   IDLE_TICKS,
+  LISTEN_FRAMES,
+  LISTEN_MS,
   POLL_MS,
+  REACTION_MS,
+  REACTIONS,
   SILENT,
   SLEEP_AFTER_MS,
   TASK_NAME,
   SLEEP_FRAMES,
   SLEEP_TICKS,
   parseStatus,
+  reactionFor,
   runs,
 } from './clawd'
+import type { Pose } from './clawd'
 
 const nowPlaying = atom({ plugin: 'clawd-vibe', key: 'nowPlaying' } as const, SILENT)
 const frame = atom({ plugin: 'clawd-vibe', key: 'frame' } as const, 0)
 const inConversation = atom({ plugin: 'clawd-vibe', key: 'inConversation' } as const, false)
+const reaction = atom({ plugin: 'clawd-vibe', key: 'reaction' } as const, null as Reaction | null)
+const listening = atom({ plugin: 'clawd-vibe', key: 'listening' } as const, false)
+const bored = atom({ plugin: 'clawd-vibe', key: 'bored' } as const, false)
+
+// Each writes its flag only when it changes, so a poll redraws nothing it need not.
+async function setListening($: EngineInterface, value: boolean) {
+  if ((await read($, listening)) !== value) {
+    await update($, listening, () => value)
+  }
+}
+
+async function setBored($: EngineInterface, value: boolean) {
+  if ((await read($, bored)) !== value) {
+    await update($, bored, () => value)
+  }
+}
 
 // Registers the Windows scheduled task that runs the watcher at every logon.
 // Skipped when the task already exists, unless `force`.
@@ -68,6 +92,13 @@ type Ctx = {
   // conversation is going: `cleared` holds from a /clear to the next turn.
   cleared: boolean
   conversing: boolean
+  boredAfterMs: number
+  // How the last turn ended, shown until `reactionUntil`.
+  reaction: Reaction | null
+  reactionUntil: number
+  // The last keystroke in the prompt, and the last thing anyone did.
+  typedAt: number
+  lastActiveAt: number
   timers: Timer[]
   // A resume swaps the session without a session.start and can end the old
   // session's timers, so each poll stamps this and `ensurePolling` restarts
@@ -109,12 +140,32 @@ async function poll($: EngineInterface, ctx: Ctx) {
     if (isGoing && !(await read($, inConversation))) {
       await update($, inConversation, () => true)
     }
+
+    if (ctx.reaction && now >= ctx.reactionUntil) {
+      ctx.reaction = null
+    }
+
+    if ((await read($, reaction)) !== ctx.reaction) {
+      const shown = ctx.reaction
+      await update($, reaction, () => shown)
+    }
+
+    await setListening($, now - ctx.typedAt < LISTEN_MS)
+    await setBored(
+      $,
+      (await read($, inConversation)) &&
+        ctx.boredAfterMs > 0 && now - ctx.lastActiveAt >= ctx.boredAfterMs,
+    )
   } catch {
     // the next poll tries again
   }
 }
 
 async function startPolling($: EngineInterface, ctx: Ctx) {
+  if (!ctx.lastActiveAt) {
+    ctx.lastActiveAt = await $.clock.now()
+  }
+
   for (const timer of ctx.timers) {
     timer.cancel()
   }
@@ -147,6 +198,14 @@ export const register: Register = (on, options) => {
     lastPlayedAt: -Infinity,
     cleared: false,
     conversing: false,
+    boredAfterMs:
+      typeof options.boredAfterSeconds === 'number' && options.boredAfterSeconds >= 0
+        ? options.boredAfterSeconds * 1000
+        : BORED_AFTER_MS,
+    reaction: null,
+    reactionUntil: 0,
+    typedAt: -Infinity,
+    lastActiveAt: 0,
     timers: [],
     lastPollAt: 0,
   }
@@ -175,8 +234,42 @@ export const register: Register = (on, options) => {
   on('turn.start', async ($, e, next) => {
     ctx.cleared = false
     ctx.conversing = true
+    ctx.reaction = null
+    ctx.typedAt = -Infinity
+    ctx.lastActiveAt = await $.clock.now()
     await update($, inConversation, () => true)
+    await update($, reaction, () => null)
+    await setListening($, false)
+    await setBored($, false)
     await ensurePolling($, ctx)
+
+    return next(e)
+  })
+
+  // A subagent's turns end inside the main one: only the main loop's count.
+  on('turn.complete', async ($, e, next) => {
+    if (e.agentId === undefined) {
+      const now = await $.clock.now()
+      const kind = reactionFor(e.reason)
+      ctx.reaction = kind
+      ctx.reactionUntil = now + REACTION_MS
+      ctx.lastActiveAt = now
+      await update($, reaction, () => kind)
+      await setBored($, false)
+    }
+
+    return next(e)
+  })
+
+  // Every keystroke passes here, so this only notes the time and never waits.
+  on('prompt.edit', ($, e, next) => {
+    void (async () => {
+      const now = await $.clock.now()
+      ctx.typedAt = now
+      ctx.lastActiveAt = now
+      await setListening($, true)
+      await setBored($, false)
+    })().catch(() => {})
 
     return next(e)
   })
@@ -185,7 +278,10 @@ export const register: Register = (on, options) => {
     if (e.reason === 'clear') {
       ctx.cleared = true
       ctx.conversing = false
+      ctx.reaction = null
       await update($, inConversation, () => false)
+      await update($, reaction, () => null)
+      await setBored($, false)
     } else if (e.reason === 'resume') {
       // A resume loads a conversation that already has turns: lift the /clear
       // hold so the next poll, which counts them, wakes Clawd.
@@ -208,7 +304,59 @@ export const register: Register = (on, options) => {
     const stored = await read($, nowPlaying)
     const playing = stored.isPlaying ? stored : ctx.known
     const isAwake = await read($, inConversation)
+    const reacting = await read($, reaction)
+    const isListening = await read($, listening)
+    const isBored = await read($, bored)
     const band = await next(e)
+
+    // Letter eyes (x, o) sit on a filled cell so the head stays closed.
+    const head = (row: string) =>
+      row.split(/([xo])/).map(part =>
+        part === 'x' || part === 'o' ? (
+          <Text color="inverseText" backgroundColor="claude">
+            {part}
+          </Text>
+        ) : (
+          <Text color="claude">{part}</Text>
+        ),
+      )
+
+    // Stars, confetti or dots above Clawd, then his three rows with a label beside the middle one.
+    const posed = (pose: Pose, label: string, topColor: 'warning' | 'error' | 'suggestion' | 'inactive') => {
+      const key = (i: number) => <Text color="suggestion">{pose.keys?.[i]}</Text>
+
+      return (
+        <Box flexDirection="column">
+          <Box>
+            <Text color={topColor}>{pose.top}</Text>
+            {key(0)}
+          </Box>
+          <Box>
+            {head(pose.rows[0])}
+            {key(1)}
+          </Box>
+          <Box>
+            <Text color="claude">{pose.rows[1]}</Text>
+            {key(2)}
+            <Text dimColor wrap="truncate-end">
+              {' '}
+              {label}
+            </Text>
+          </Box>
+          <Box>
+            <Text color="claude">{pose.rows[2]}</Text>
+            {key(3)}
+          </Box>
+          {band}
+        </Box>
+      )
+    }
+
+    if (reacting) {
+      const { frames, ticks, label, color } = REACTIONS[reacting]
+
+      return posed(frames[Math.floor(tick / ticks) % frames.length]!, label, color)
+    }
 
     if (playing.isPlaying) {
       const { notes, eq, body } = FRAMES[tick % FRAMES.length]!
@@ -237,6 +385,14 @@ export const register: Register = (on, options) => {
           {band}
         </Box>
       )
+    }
+
+    if (isListening) {
+      return posed(LISTEN_FRAMES[tick % LISTEN_FRAMES.length]!, 'listening…', 'suggestion')
+    }
+
+    if (isAwake && isBored) {
+      return posed(BORED_FRAMES[Math.floor(tick / IDLE_TICKS) % BORED_FRAMES.length]!, '…still here', 'inactive')
     }
 
     if (isAwake) {
