@@ -1,4 +1,4 @@
-# clawd-vibe
+﻿# clawd-vibe
 
 A [Claude Code](https://claude.com/claude-code) mod that puts Clawd above your prompt.
 
@@ -22,7 +22,7 @@ properly (in VS Code's terminal keep `terminal.integrated.gpuAcceleration` on).
 In a Claude Code terminal session:
 
 ```
-/plugin install clawd-vibe --marketplace <your-github-name>/clawd-vibe
+/plugin install clawd-vibe --marketplace jrpferreira2002-jpg/clawd-vibe
 ```
 
 Answer `y` to add the marketplace, pick a scope, and the install screen asks for these options:
