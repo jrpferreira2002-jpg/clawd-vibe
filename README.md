@@ -1,4 +1,4 @@
-﻿# clawd-vibe
+# clawd-vibe
 
 A [Claude Code](https://claude.com/claude-code) mod that puts Clawd above your prompt.
 
