@@ -24,6 +24,10 @@ const inConversation = atom({ plugin: 'clawd-vibe', key: 'inConversation' } as c
 // Registers the Windows scheduled task that runs the watcher at every logon.
 // Skipped when the task already exists, unless `force`.
 async function installWatcher($: EngineInterface, statusFile: string, force: boolean) {
+  if (!statusFile) {
+    return 'Set the Spotify status file option for clawd-vibe first, then run this again.'
+  }
+
   try {
     if (!force) {
       const found = await $.process.run(['schtasks', '/Query', '/TN', TASK_NAME])
