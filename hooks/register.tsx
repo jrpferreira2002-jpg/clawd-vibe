@@ -99,8 +99,6 @@ type Ctx = {
   // The last keystroke in the prompt, and the last thing anyone did.
   typedAt: number
   lastActiveAt: number
-  // Set by /clawd-bored so the debug mood outlasts the next poll.
-  forceBoredUntil: number
   timers: Timer[]
   // A resume swaps the session without a session.start and can end the old
   // session's timers, so each poll stamps this and `ensurePolling` restarts
@@ -156,7 +154,7 @@ async function poll($: EngineInterface, ctx: Ctx) {
     await setBored(
       $,
       (await read($, inConversation)) &&
-        (now < ctx.forceBoredUntil || (ctx.boredAfterMs > 0 && now - ctx.lastActiveAt >= ctx.boredAfterMs)),
+        ctx.boredAfterMs > 0 && now - ctx.lastActiveAt >= ctx.boredAfterMs,
     )
   } catch {
     // the next poll tries again
@@ -189,19 +187,6 @@ async function ensurePolling($: EngineInterface, ctx: Ctx) {
   }
 }
 
-const DEBUG_HOLD_MS = 30_000
-
-// One command per animation, so each can be watched without waiting for it.
-const DEBUG_COMMANDS: Record<string, { mood: string; description: string }> = {
-  'clawd-celebrate': { mood: 'celebrating', description: 'show the celebrating reaction' },
-  'clawd-dizzy': { mood: 'dizzy', description: 'show the dizzy (error) reaction' },
-  'clawd-startled': { mood: 'startled', description: 'show the startled (aborted) reaction' },
-  'clawd-listen': { mood: 'listening', description: 'show the listening pose' },
-  'clawd-bored': { mood: 'bored', description: 'show the bored pose (30s)' },
-  'clawd-sleep': { mood: 'sleep', description: 'show the sleeping / not-in-conversation pose' },
-  'clawd-wake': { mood: 'awake', description: 'wake Clawd into the normal idle/vibing pose' },
-}
-
 export const register: Register = (on, options) => {
   const ctx: Ctx = {
     statusFile: typeof options.statusFile === 'string' ? options.statusFile : '',
@@ -221,7 +206,6 @@ export const register: Register = (on, options) => {
     reactionUntil: 0,
     typedAt: -Infinity,
     lastActiveAt: 0,
-    forceBoredUntil: 0,
     timers: [],
     lastPollAt: 0,
   }
@@ -232,11 +216,6 @@ export const register: Register = (on, options) => {
       name: 'clawd-setup',
       description: 'Install the Spotify watcher as a Windows scheduled task that starts at logon',
     })
-    await $.command.register({ name: 'clawd-reset', description: 'Debug: clear any forced animation' })
-
-    for (const [name, debug] of Object.entries(DEBUG_COMMANDS)) {
-      await $.command.register({ name, description: `Debug: ${debug.description}` })
-    }
 
     if (options.autostart === true) {
       void installWatcher($, statusFile, false).then(text => $.ui.log(`clawd-vibe: ${text}`, { to: 'debug' }))
@@ -251,55 +230,6 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'clawd-setup' }, async $ => ({
     text: await installWatcher($, statusFile, true),
   }))
-
-  for (const [name, debug] of Object.entries(DEBUG_COMMANDS)) {
-    on('command.run', { command: name }, async $ => {
-      const now = await $.clock.now()
-      ctx.reaction = null
-      ctx.typedAt = -Infinity
-      ctx.forceBoredUntil = 0
-      ctx.lastActiveAt = now
-
-      if (debug.mood === 'sleep') {
-        ctx.cleared = true
-        ctx.conversing = false
-      } else {
-        ctx.cleared = false
-        ctx.conversing = true
-      }
-
-      await update($, inConversation, () => debug.mood !== 'sleep')
-      await update($, reaction, () => null)
-      await setListening($, false)
-      await setBored($, false)
-
-      if (debug.mood === 'listening') {
-        ctx.typedAt = now
-        await setListening($, true)
-      } else if (debug.mood === 'bored') {
-        ctx.forceBoredUntil = now + DEBUG_HOLD_MS
-        await setBored($, true)
-      } else if (debug.mood === 'celebrating' || debug.mood === 'dizzy' || debug.mood === 'startled') {
-        ctx.reaction = debug.mood
-        ctx.reactionUntil = now + REACTION_MS
-        await update($, reaction, () => debug.mood as Reaction)
-      }
-
-      return { text: `showing ${debug.mood}` }
-    })
-  }
-
-  on('command.run', { command: 'clawd-reset' }, async $ => {
-    ctx.reaction = null
-    ctx.typedAt = -Infinity
-    ctx.forceBoredUntil = 0
-    ctx.lastActiveAt = await $.clock.now()
-    await update($, reaction, () => null)
-    await setListening($, false)
-    await setBored($, false)
-
-    return { text: 'back to normal' }
-  })
 
   on('turn.start', async ($, e, next) => {
     ctx.cleared = false
