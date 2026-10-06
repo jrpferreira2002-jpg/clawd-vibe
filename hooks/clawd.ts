@@ -88,7 +88,8 @@ export const IDLE_FRAMES: Rows[] = [
 ]
 
 // A mood drawn as a row above Clawd (stars, confetti, dots) and his three rows.
-export type Pose = { top: string; rows: Rows }
+// `keys` is a 6-wide column right of the top row and each body row.
+export type Pose = { top: string; rows: Rows; keys?: [string, string, string, string] }
 
 // What Clawd shows the moment a turn ends, for REACTION_MS.
 export const REACTIONS: Record<Reaction, { frames: Pose[]; ticks: number; label: string; color: 'warning' | 'error' | 'suggestion' }> = {
@@ -129,13 +130,31 @@ export const REACTIONS: Record<Reaction, { frames: Pose[]; ticks: number; label:
   },
 }
 
-// You are typing: Clawd leans towards the prompt and reads along.
-export const LISTEN_FRAMES: Pose[] = [
-  { top: '         .  ', rows: awake(LEFT, 1) },
-  { top: '         .. ', rows: awake(AHEAD, 1) },
-  { top: '         ...', rows: awake(RIGHT, 1) },
-  { top: '            ', rows: awake(AHEAD, 1) },
-]
+// You are typing: keys float up beside Clawd and his eyes follow the highest one.
+const KEYS = ['a', 's', '⏎', 'k', '␣', 'e', '⌫', 't', 'j', '⇥', 'r', 'n']
+const KEY_COLUMNS = [1, 4, 2, 5, 0, 3, 4, 1, 5, 2, 0, 3]
+const LISTEN_LENGTH = 12
+
+export const LISTEN_FRAMES: Pose[] = Array.from({ length: LISTEN_LENGTH }, (_, f) => {
+  const keys: [string, string, string, string] = ['      ', '      ', '      ', '      ']
+  let highest = 4
+
+  // A key is spawned on every even frame and rises one row per frame.
+  for (let spawn = 0; spawn < LISTEN_LENGTH; spawn += 2) {
+    const row = 3 - ((f - spawn + LISTEN_LENGTH) % LISTEN_LENGTH)
+
+    if (row >= 0 && row <= 3) {
+      const cells = keys[row].split('')
+      cells[KEY_COLUMNS[spawn]!] = KEYS[spawn]!
+      keys[row] = cells.join('')
+      highest = Math.min(highest, row)
+    }
+  }
+
+  const face = highest === 0 ? UP : highest < 4 ? RIGHT : AHEAD
+
+  return { top: '            ', rows: awake(face), keys }
+})
 
 // A conversation is going but nobody has said anything for a while.
 export const BORED_FRAMES: Pose[] = [

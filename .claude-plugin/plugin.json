@@ -9,8 +9,8 @@
     "statusFile": {
       "type": "string",
       "title": "Spotify status file",
-      "description": "Full path of the JSON file the Spotify watcher writes (Windows example: C:\\Users\\you\\AppData\\Local\\clawd-vibe\\.clawd-spotify.json). From WSL use the /mnt/c/... form of the same path.",
-      "required": true
+      "description": "Optional: without it Clawd works but never dances to music. Full path of the JSON file the Spotify watcher writes (Windows example: C:\\Users\\you\\AppData\\Local\\clawd-vibe\\.clawd-spotify.json). From WSL use the /mnt/c/... form of the same path.",
+      "required": false
     },
     "autostart": {
       "type": "boolean",
