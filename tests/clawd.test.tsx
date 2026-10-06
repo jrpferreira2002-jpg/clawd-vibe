@@ -172,6 +172,21 @@ for (const surface of SURFACES) {
       await ui.unmount()
     })
 
+    test('a /resume after a /clear wakes Clawd without a new turn', OPTS, async ($, on) => {
+      const { clock, state } = world(on)
+      state.turns = 1
+      await start($)
+      const ui = await mount($, surface)
+
+      await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+      expect(await shown(ui)).toContain('sleeping…')
+
+      await $.session.end({ reason: 'resume', sessionId: 's1', resume: { id: 's2' } })
+      await clock.advance(3000)
+      expect(await shown(ui)).not.toContain('sleeping…')
+      await ui.unmount()
+    })
+
     test('a /clear while music plays never interrupts the vibing', OPTS, async ($, on) => {
       const { clock, state } = world(on)
       state.isPlaying = true
