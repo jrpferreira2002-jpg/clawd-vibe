@@ -1,12 +1,18 @@
 import type { On } from 'claude-code'
 import { describe, expect, mock, test } from 'claude-code/testing'
-import type { Engine } from 'claude-code/testing'
+import type { Engine, EngineCall } from 'claude-code/testing'
 
 import {
+  BORED_AFTER_MS,
+  BORED_FRAMES,
   FRAME_MS,
   FRAMES,
   IDLE_FRAMES,
   IDLE_TICKS,
+  LISTEN_FRAMES,
+  LISTEN_MS,
+  REACTION_MS,
+  REACTIONS,
   SLEEP_AFTER_MS,
   SLEEP_FRAMES,
   SLEEP_TICKS,
@@ -49,6 +55,8 @@ function world(on: On) {
   on('session.turns', () => ({ value: state.turns }))
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('turn.complete', ($, e) => ({ text: e.answer }))
+  on('prompt.edit', ($, e) => ({ text: e.text + e.inputText, cursor: e.cursor + e.inputText.length }))
   on('session.end', ($, e) => ({ sessionId: e.sessionId }))
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
     const { Text } = $.ui.resolve(e)
@@ -106,6 +114,27 @@ describe('parseStatus', () => {
     expect(parseStatus(fresh.slice(0, 20), NOW).isPlaying).toBe(false)
   })
 })
+
+const finish = ($: Engine, reason: 'answer' | 'aborted' | 'error', agentId?: string) =>
+  $.turn.complete({
+    answer: 'ok',
+    durationMs: 1000,
+    isAborted: reason === 'aborted',
+    turnId: 't1',
+    reason,
+    ...(agentId ? { agentId } : {}),
+  })
+
+// The engine raises prompt.edit on every keystroke; the test kit's types leave it off `$.prompt`.
+const type = ($: Engine, inputText: string) =>
+  ($.prompt as unknown as { edit: EngineCall<'prompt.edit'> }).edit({ origin: { kind: 'composer' }, text: '', cursor: 0, start: 0, end: 0, inputText })
+
+// Starts a session with one turn behind it, so Clawd is awake.
+async function chatting($: Engine, state: { turns: number }) {
+  await start($)
+  await $.turn.start({ text: 'hi', turnId: 't1' })
+  state.turns = 1
+}
 
 for (const surface of SURFACES) {
   describe(surface, () => {
@@ -204,8 +233,112 @@ for (const surface of SURFACES) {
 
       await ui.unmount()
     })
+
+    test('a finished turn: Clawd celebrates, then goes back to waiting', OPTS, async ($, on) => {
+      const { clock, state } = world(on)
+      await chatting($, state)
+      const ui = await mount($, surface)
+
+      await finish($, 'answer')
+      expect(await shown(ui)).toContain(REACTIONS.celebrating.label)
+      expect(await drawings(ui, clock, 4)).toHaveProperty('size', 4)
+
+      await clock.advance(REACTION_MS)
+      const after = await shown(ui)
+      expect(after).not.toContain(REACTIONS.celebrating.label)
+      expect(after).toContain('awake, waiting for you…')
+      await ui.unmount()
+    })
+
+    test('an error makes Clawd dizzy, an interruption startles him', OPTS, async ($, on) => {
+      const { clock, state } = world(on)
+      await chatting($, state)
+      const ui = await mount($, surface)
+
+      await finish($, 'error')
+      expect(await shown(ui)).toContain(REACTIONS.dizzy.label)
+
+      await clock.advance(REACTION_MS)
+      await finish($, 'aborted')
+      expect(await shown(ui)).toContain(REACTIONS.startled.label)
+      await ui.unmount()
+    })
+
+    test("a subagent's turn ending is no reason to celebrate", OPTS, async ($, on) => {
+      const { state } = world(on)
+      await chatting($, state)
+      const ui = await mount($, surface)
+
+      await finish($, 'answer', 'agent-1')
+      expect(await shown(ui)).toContain('awake, waiting for you…')
+      await ui.unmount()
+    })
+
+    test('a reaction shows over the music, then the vibing comes back', OPTS, async ($, on) => {
+      const { clock, state } = world(on)
+      state.isPlaying = true
+      await chatting($, state)
+      const ui = await mount($, surface)
+
+      await finish($, 'answer')
+      expect(await shown(ui)).toContain(REACTIONS.celebrating.label)
+
+      await clock.advance(REACTION_MS)
+      expect(await shown(ui)).toContain('vibing to')
+      await ui.unmount()
+    })
+
+    test('typing wakes Clawd to read along, and he stops soon after', OPTS, async ($, on) => {
+      const { clock } = world(on)
+      await start($)
+      const ui = await mount($, surface)
+      expect(await shown(ui)).toContain('sleeping…')
+
+      await type($, 'h')
+      await clock.advance(0)
+      expect(await shown(ui)).toContain('listening…')
+      expect(await drawings(ui, clock, LISTEN_FRAMES.length * IDLE_TICKS)).toHaveProperty('size', LISTEN_FRAMES.length)
+
+      await clock.advance(LISTEN_MS + 1000)
+      expect(await shown(ui)).toContain('sleeping…')
+      await ui.unmount()
+    })
+
+    test('a long quiet makes Clawd bored, typing cheers him up', OPTS, async ($, on) => {
+      const { clock, state } = world(on)
+      await chatting($, state)
+      const ui = await mount($, surface)
+
+      await clock.advance(BORED_AFTER_MS - 2000)
+      expect(await shown(ui)).toContain('awake, waiting for you…')
+
+      await clock.advance(3000)
+      expect(await shown(ui)).toContain('…still here')
+      expect((await drawings(ui, clock, BORED_FRAMES.length * IDLE_TICKS)).size).toBeGreaterThan(4)
+
+      await type($, 'x')
+      await clock.advance(0)
+      expect(await shown(ui)).toContain('listening…')
+      await clock.advance(LISTEN_MS + 1000)
+      expect(await shown(ui)).toContain('awake, waiting for you…')
+      await ui.unmount()
+    })
   })
 }
+
+test(
+  'boredAfterSeconds 0: Clawd never gets bored',
+  { options: { statusFile: DEFAULT_FILE, boredAfterSeconds: 0 } },
+  async ($, on) => {
+    const { clock, state } = world(on)
+    await chatting($, state)
+    const ui = await mount($, 'terminal')
+
+    await clock.advance(BORED_AFTER_MS * 3)
+    expect(await shown(ui)).toContain('awake, waiting for you…')
+    await ui.unmount()
+  },
+)
 
 test('reads the configured status file', OPTS, async ($, on) => {
   const { state } = world(on)
@@ -262,6 +395,9 @@ describe('frames', () => {
       ...FRAMES.flatMap(frame => [frame.notes, ...frame.body]),
       ...SLEEP_FRAMES.flatMap(frame => [...frame.zs, ...frame.body]),
       ...IDLE_FRAMES.flat(),
+      ...[...Object.values(REACTIONS).flatMap(r => r.frames), ...LISTEN_FRAMES, ...BORED_FRAMES].flatMap(
+        pose => [pose.top, ...pose.rows],
+      ),
     ]
 
     for (const row of rows) {
