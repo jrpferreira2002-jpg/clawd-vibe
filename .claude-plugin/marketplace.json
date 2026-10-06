@@ -1,0 +1,6 @@
+{
+  "name": "clawd-vibe",
+  "description": "Claude Code mods by Ferreira.",
+  "owner": { "name": "Ferreira" },
+  "plugins": [{ "name": "clawd-vibe", "source": "./" }]
+}

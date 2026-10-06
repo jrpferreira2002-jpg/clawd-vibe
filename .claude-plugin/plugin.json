@@ -1,0 +1,28 @@
+{
+  "name": "clawd-vibe",
+  "version": "0.2.0",
+  "description": "Clawd above the prompt: dances with a headset while Spotify plays, idles during a conversation, sleeps otherwise.",
+  "author": { "name": "Ferreira" },
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "statusFile": {
+      "type": "string",
+      "title": "Spotify status file",
+      "description": "Full path of the JSON file the Spotify watcher writes (Windows example: C:\\Users\\you\\AppData\\Local\\clawd-vibe\\.clawd-spotify.json). From WSL use the /mnt/c/... form of the same path.",
+      "required": true
+    },
+    "autostart": {
+      "type": "boolean",
+      "title": "Start the watcher at every Windows logon",
+      "description": "Windows only. Creates a hidden scheduled task named 'Clawd Spotify Watch' that runs the watcher whenever you log in. Leave off to start it yourself.",
+      "default": false
+    },
+    "sleepAfterSeconds": {
+      "type": "number",
+      "title": "Seconds of silence before Clawd stops vibing",
+      "description": "How long the music must be off before the dance ends.",
+      "default": 10
+    }
+  }
+}

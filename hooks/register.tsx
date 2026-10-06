@@ -1,0 +1,234 @@
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface, Register, Timer } from 'claude-code'
+
+import type { NowPlaying } from '../types'
+import {
+  FRAME_MS,
+  FRAMES,
+  IDLE_FRAMES,
+  IDLE_TICKS,
+  POLL_MS,
+  SILENT,
+  SLEEP_AFTER_MS,
+  TASK_NAME,
+  SLEEP_FRAMES,
+  SLEEP_TICKS,
+  parseStatus,
+  runs,
+} from './clawd'
+
+const nowPlaying = atom({ plugin: 'clawd-vibe', key: 'nowPlaying' } as const, SILENT)
+const frame = atom({ plugin: 'clawd-vibe', key: 'frame' } as const, 0)
+const inConversation = atom({ plugin: 'clawd-vibe', key: 'inConversation' } as const, false)
+
+// Registers the Windows scheduled task that runs the watcher at every logon.
+// Skipped when the task already exists, unless `force`.
+async function installWatcher($: EngineInterface, statusFile: string, force: boolean) {
+  try {
+    if (!force) {
+      const found = await $.process.run(['schtasks', '/Query', '/TN', TASK_NAME])
+
+      if (found.exitCode === 0) {
+        return `The '${TASK_NAME}' task already exists.`
+      }
+    }
+
+    const ran = await $.process.run([
+      'powershell',
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      `${$.plugin.root}\\scripts\\install-watcher.ps1`,
+      '-StatusFile',
+      statusFile,
+    ])
+
+    return ran.exitCode === 0
+      ? ran.stdout.trim()
+      : `Could not install the watcher task: ${(ran.stderr || ran.stdout).trim()}`
+  } catch (error) {
+    return `Could not install the watcher task (Windows only): ${String(error)}`
+  }
+}
+
+export const register: Register = (on, options) => {
+  const statusFile = typeof options.statusFile === 'string' ? options.statusFile : ''
+  const sleepAfterMs =
+    typeof options.sleepAfterSeconds === 'number' && options.sleepAfterSeconds >= 0
+      ? options.sleepAfterSeconds * 1000
+      : SLEEP_AFTER_MS
+
+  // The last known play status, kept beside $.state so a state reset (/clear)
+  // never flashes the sleep frames while music plays.
+  let known: NowPlaying = SILENT
+  let lastPlayedAt = -Infinity
+  // /clear keeps the old turn count, so the turn count alone cannot say a
+  // conversation is going: `cleared` holds from a /clear to the next turn.
+  let cleared = false
+  let conversing = false
+  let timers: Timer[] = []
+
+  on('session.start', async ($, e, next) => {
+    await $.command.register({
+      name: 'clawd-setup',
+      description: 'Install the Spotify watcher as a Windows scheduled task that starts at logon',
+    })
+
+    if (options.autostart === true) {
+      void installWatcher($, statusFile, false).then(text => $.ui.log(`clawd-vibe: ${text}`, { to: 'debug' }))
+    }
+
+    const poll = async () => {
+      try {
+        const now = await $.clock.now()
+        let parsed = SILENT
+
+        try {
+          parsed = parseStatus(await $.fs.read(statusFile), now)
+        } catch {
+          // missing or unreadable: silent
+        }
+
+        if (parsed.isPlaying) {
+          lastPlayedAt = now
+          known = parsed
+        } else if (now - lastPlayedAt >= sleepAfterMs) {
+          known = SILENT
+        }
+
+        const stored = await read($, nowPlaying)
+
+        if (stored.isPlaying !== known.isPlaying || stored.track !== known.track) {
+          const status = known
+          await update($, nowPlaying, () => status)
+        }
+
+        // Only ever wakes Clawd: a reload loses `conversing`, and the turn
+        // count can read 0 outside a turn, so neither may put him to sleep.
+        // Only a /clear (session.end) does that.
+        const isGoing = conversing || (!cleared && (await $.session.turns()) > 0)
+
+        if (isGoing && !(await read($, inConversation))) {
+          await update($, inConversation, () => true)
+        }
+      } catch {
+        // the next poll tries again
+      }
+    }
+
+    for (const timer of timers) {
+      timer.cancel()
+    }
+
+    timers = [
+      $.clock.every(POLL_MS, () => void poll()),
+      $.clock.every(FRAME_MS, () => void update($, frame, n => n + 1).catch(() => {})),
+    ]
+    await poll()
+
+    return next(e)
+  })
+
+  on('command.run', { command: 'clawd-setup' }, async $ => ({
+    text: await installWatcher($, statusFile, true),
+  }))
+
+  on('turn.start', async ($, e, next) => {
+    cleared = false
+    conversing = true
+    await update($, inConversation, () => true)
+
+    return next(e)
+  })
+
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear') {
+      cleared = true
+      conversing = false
+      await update($, inConversation, () => false)
+    }
+
+    return next(e)
+  })
+
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props.isWorking || e.props.hasSurvey) {
+      return next(e)
+    }
+
+    const { Box, Text } = $.ui.resolve(e)
+    const tick = await read($, frame)
+    const stored = await read($, nowPlaying)
+    const playing = stored.isPlaying ? stored : known
+    const isAwake = await read($, inConversation)
+    const band = await next(e)
+
+    if (playing.isPlaying) {
+      const { notes, eq, body } = FRAMES[tick % FRAMES.length]!
+      const row = (text: string) => (
+        <Box>
+          {runs(text).map(run => (
+            <Text color={run.isHeadset ? 'inactive' : 'claude'}>{run.text}</Text>
+          ))}
+        </Box>
+      )
+
+      return (
+        <Box flexDirection="column">
+          <Text color="suggestion">{notes}</Text>
+          {row(body[0]!)}
+          {row(body[1]!)}
+          <Box>
+            {row(body[2]!)}
+            <Text color="success"> {eq}</Text>
+            <Text dimColor wrap="truncate-end">
+              {' '}
+              vibing to {playing.track || 'Spotify'}
+            </Text>
+          </Box>
+          {row(body[3]!)}
+          {band}
+        </Box>
+      )
+    }
+
+    if (isAwake) {
+      const rows = IDLE_FRAMES[Math.floor(tick / IDLE_TICKS) % IDLE_FRAMES.length]!
+
+      return (
+        <Box flexDirection="column">
+          {rows.map(text => (
+            <Text color="claude">{text}</Text>
+          ))}
+          {band}
+        </Box>
+      )
+    }
+
+    const { zs, body } = SLEEP_FRAMES[Math.floor(tick / SLEEP_TICKS) % SLEEP_FRAMES.length]!
+
+    return (
+      <Box flexDirection="column">
+        <Text color="inactive">{zs[0]}</Text>
+        <Text color="inactive">{zs[1]}</Text>
+        <Text color="claude" dimColor>
+          {body[0]}
+        </Text>
+        <Box>
+          <Text color="claude" dimColor>
+            {body[1]}
+          </Text>
+          <Text dimColor wrap="truncate-end">
+            {' '}
+            sleeping…
+          </Text>
+        </Box>
+        <Text color="claude" dimColor>
+          {body[2]}
+        </Text>
+        {band}
+      </Box>
+    )
+  })
+}
