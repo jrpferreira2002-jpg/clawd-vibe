@@ -76,7 +76,7 @@ function awake(face: Face, dx = 0): Rows {
 
 // One hand raised and waving: `hand` is the corner of the block it shows.
 const wave = (hand: '▖' | '▗'): Rows => [`  ▐${AHEAD}▌${hand}  `, ' ▝▜█████▛   ', LEGS]
-const tap: Rows = [HEAD(AHEAD), ARMS, '   ▘▘ ▝▗    ']
+const tap: Rows = [HEAD(AHEAD), ARMS, '   ▘▘ ▝▘    ']
 
 export const IDLE_FRAMES: Rows[] = [
   awake(AHEAD), awake(AHEAD), awake(AHEAD), awake(AHEAD), awake(BLINK), awake(AHEAD), awake(AHEAD),
