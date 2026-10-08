@@ -151,7 +151,11 @@ async function poll($: EngineInterface, ctx: Ctx) {
     }
 
     await setListening($, now - ctx.typedAt < LISTEN_MS)
-    await setBored($, (await read($, inConversation)) && ctx.boredAfterMs > 0 && now - ctx.lastActiveAt >= ctx.boredAfterMs)
+    await setBored(
+      $,
+      (await read($, inConversation)) &&
+        ctx.boredAfterMs > 0 && now - ctx.lastActiveAt >= ctx.boredAfterMs,
+    )
   } catch {
     // the next poll tries again
   }
